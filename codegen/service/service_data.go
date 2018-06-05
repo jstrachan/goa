@@ -128,6 +128,35 @@ type (
 		// ViewedResult contains the data required to generate the code handling
 		// multiple views if any.
 		ViewedResult *ViewedResultTypeData
+		// ServerStream indicates that the service method receives a payload
+		// stream or sends a result stream or both.
+		ServerStream *StreamData
+		// ClientStream indicates that the service method receives a result
+		// stream or sends a payload result or both.
+		ClientStream *StreamData
+	}
+
+	// StreamData is the data used to generate client and server interfaces that
+	// a streaming endpoint implements. It is initialized if a method defines a
+	// streaming payload or result or both.
+	StreamData struct {
+		// Interface is the name of the stream interface.
+		Interface string
+		// VarName is the name of the struct type that implements the stream
+		// interface.
+		VarName string
+		// SendName is the type name sent through the stream.
+		SendName string
+		// SendRef is the reference to the type sent through the stream.
+		SendRef string
+		// RecvName is the type name received from the stream.
+		RecvName string
+		// RecvRef is the reference to the type received from the stream.
+		RecvRef string
+		// EndpointStruct is the name of the endpoint struct that holds a payload
+		// reference (if any) and the endpoint server stream. It is set only if the
+		// client sends a normal payload and server streams a result.
+		EndpointStruct string
 	}
 
 	// RequirementData lists the schemes and scopes defined by a single
@@ -225,6 +254,8 @@ type (
 		// ResultInit is the constructor code to initialize a result type
 		// from the viewed result type.
 		ResultInit *InitData
+		// FullName is the fully qualified name of the viewed result type.
+		FullName string
 		// FullRef is the complete reference to the viewed result type
 		// (including views package name).
 		FullRef string
@@ -430,7 +461,7 @@ func (d ServicesData) analyze(service *design.ServiceExpr) *Data {
 				if vrt, ok := seenViewed[m.Result]; ok {
 					m.ViewedResult = vrt
 				} else {
-					projected := seenProj[m.Result]
+					projected := seenProj[e.Result.Type.Name()]
 					vrt := buildViewedResultType(e.Result, projected.Type, scope, viewspkg)
 					viewedRTs = append(viewedRTs, vrt)
 					seenViewed[vrt.Name] = vrt
@@ -557,6 +588,8 @@ func buildMethodData(m *design.MethodExpr, svcPkgName string, scope *codegen.Nam
 		errors      []*ErrorInitData
 		reqs        []*RequirementData
 		schemes     []string
+		svrStream   *StreamData
+		cliStream   *StreamData
 	)
 	vname = codegen.Goify(m.Name, true)
 	desc = m.Description
@@ -595,6 +628,38 @@ func buildMethodData(m *design.MethodExpr, svcPkgName string, scope *codegen.Nam
 			errors[i] = buildErrorInitData(er, scope)
 		}
 	}
+	if m.Stream != design.NoStreamKind {
+		svrStream = &StreamData{
+			Interface: vname + "ServerStream",
+			VarName:   m.Name + "ServerStream",
+		}
+		cliStream = &StreamData{
+			Interface: vname + "ClientStream",
+			VarName:   m.Name + "ClientStream",
+		}
+		switch m.Stream {
+		case design.ServerStreamKind:
+			svrStream.SendName = rname
+			svrStream.SendRef = resultRef
+			cliStream.RecvName = rname
+			cliStream.RecvRef = resultRef
+			svrStream.EndpointStruct = vname + "EndpointInput"
+		case design.ClientStreamKind:
+			svrStream.RecvName = payloadName
+			svrStream.RecvRef = payloadRef
+			cliStream.SendName = payloadName
+			cliStream.SendRef = payloadRef
+		case design.BidirectionalStreamKind:
+			svrStream.SendName = rname
+			svrStream.SendRef = resultRef
+			svrStream.RecvName = payloadName
+			svrStream.RecvRef = payloadRef
+			cliStream.SendName = payloadName
+			cliStream.SendRef = payloadRef
+			cliStream.RecvName = rname
+			cliStream.RecvRef = resultRef
+		}
+	}
 	for _, req := range requirements(m) {
 		var rs []*SchemeData
 		for _, s := range req.Schemes {
@@ -630,6 +695,8 @@ func buildMethodData(m *design.MethodExpr, svcPkgName string, scope *codegen.Nam
 		Errors:       errors,
 		Requirements: reqs,
 		Schemes:      schemes,
+		ServerStream: svrStream,
+		ClientStream: cliStream,
 	}
 }
 
@@ -875,7 +942,7 @@ func buildViewedResultType(att *design.AttributeExpr, projected design.UserType,
 	if err := initTypeCodeTmpl.Execute(&buf, data); err != nil {
 		panic(err) // bug
 	}
-	name = "newViewed" + resvar
+	name = "NewViewed" + resvar
 	init = &InitData{
 		Name:        name,
 		Description: fmt.Sprintf("%s initializes viewed result type %s from result type %s using the given view.", name, resvar, resvar),
@@ -920,6 +987,7 @@ func buildViewedResultType(att *design.AttributeExpr, projected design.UserType,
 			Ref:         resref,
 			Type:        projected,
 		},
+		FullName:     scope.GoFullTypeName(att, viewspkg),
 		FullRef:      vresref,
 		ResultInit:   resinit,
 		Init:         init,
@@ -1047,7 +1115,7 @@ func buildProjections(projected, att *design.AttributeExpr, scope *codegen.NameS
 				Type: &design.ResultTypeExpr{
 					UserTypeExpr: &design.UserTypeExpr{
 						AttributeExpr: &design.AttributeExpr{Type: obj},
-						TypeName:      scope.GoTypeName(parr.ElemType),
+						TypeName:      parr.ElemType.Type.Name(),
 					},
 				},
 			}}
@@ -1056,7 +1124,7 @@ func buildProjections(projected, att *design.AttributeExpr, scope *codegen.NameS
 			Type: &design.ResultTypeExpr{
 				UserTypeExpr: &design.UserTypeExpr{
 					AttributeExpr: &design.AttributeExpr{Type: typ},
-					TypeName:      tname,
+					TypeName:      projected.Type.Name(),
 				},
 				Views:      rt.Views,
 				Identifier: rt.Identifier,

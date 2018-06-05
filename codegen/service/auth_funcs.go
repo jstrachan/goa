@@ -15,8 +15,12 @@ func AuthFuncsFile(genpkg string, root *design.RootExpr) *codegen.File {
 	var (
 		apiPkg   = strings.ToLower(codegen.Goify(root.API.Name, false))
 		rootPath = "."
+		filepath = "auth.go"
 	)
 	{
+		if _, err := os.Stat(filepath); !os.IsNotExist(err) {
+			return nil // file already exists, skip it.
+		}
 		idx := strings.LastIndex(genpkg, string(os.PathSeparator))
 		if idx > 0 {
 			rootPath = genpkg[:idx]
@@ -25,6 +29,7 @@ func AuthFuncsFile(genpkg string, root *design.RootExpr) *codegen.File {
 
 	var (
 		sections []*codegen.SectionTemplate
+		mustGen  bool
 	)
 	{
 		specs := []*codegen.ImportSpec{
@@ -46,6 +51,7 @@ func AuthFuncsFile(genpkg string, root *design.RootExpr) *codegen.File {
 		for _, s := range root.Services {
 			svc := Services.Get(s.Name)
 			if len(svc.Schemes) > 0 {
+				mustGen = true
 				sections = append(sections, &codegen.SectionTemplate{
 					Name:   "security-authfuncs",
 					Source: dummyAuthFuncsT,
@@ -58,8 +64,11 @@ func AuthFuncsFile(genpkg string, root *design.RootExpr) *codegen.File {
 		return nil
 	}
 
+	if !mustGen {
+		return nil
+	}
 	return &codegen.File{
-		Path:             "auth.go",
+		Path:             filepath,
 		SectionTemplates: sections,
 	}
 }
