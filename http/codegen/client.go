@@ -478,11 +478,17 @@ func {{ .ResponseDecoder }}(decoder func(*http.Response) goahttp.Decoder, restor
 		{{- if .ResultInit }}
 			{{- if .ViewedResult }}
 			p := {{ .ResultInit.Name }}({{ range .ResultInit.ClientArgs }}{{ .Ref }},{{ end }})
+				{{- if $.Method.ViewedResult.ViewName }}
+			view := {{ printf "%q" $.Method.ViewedResult.ViewName }}
+				{{- else }}
 			view := resp.Header.Get("goa-view")
+				{{- end }}
 			vres := {{ if not $.Method.ViewedResult.IsCollection }}&{{ end }}{{ $.Method.ViewedResult.ViewsPkg}}.{{ $.Method.ViewedResult.VarName }}{p, view}
-			if err = vres.Validate(); err != nil {
-				return nil, goahttp.ErrValidationError("{{ $.ServiceName }}", "{{ $.Method.Name }}", err)
-			}
+			{{- if .ClientBody }}
+				if err = vres.Validate(); err != nil {
+					return nil, goahttp.ErrValidationError("{{ $.ServiceName }}", "{{ $.Method.Name }}", err)
+				}
+			{{- end }}
 			return {{ $.ServicePkgName }}.{{ $.Method.ViewedResult.ResultInit.Name }}(vres), nil
 			{{- else }}
 		return {{ .ResultInit.Name }}({{ range .ResultInit.ClientArgs }}{{ .Ref }},{{ end }}), nil

@@ -308,15 +308,17 @@ func New{{ .VarName }}Endpoint(s {{ .ServiceVarName }}{{ range .Schemes }}, auth
 {{- if .ServerStream }}
 	return nil, s.{{ .VarName }}(ctx, {{ if and .PayloadRef (not .ServerStream.RecvRef) }}ep.Payload, {{ end }}ep.Stream)
 {{- else if .ViewedResult }}
-	res, view, err := s.{{ .VarName }}(ctx{{ if .PayloadRef }}, p{{ end }})
-	if err != nil {
-		return nil, err
-	}
-	vres := {{ $.ViewedResult.Init.Name }}(res, view)
-	if err := vres.Validate(); err != nil {
-		return nil, err
-	}
-	return vres, nil
+		res,{{ if not .ViewedResult.ViewName }} view,{{ end }} err := s.{{ .VarName }}(ctx{{ if .PayloadRef }}, p{{ end }})
+		if err != nil {
+			return nil, err
+		}
+		vres := {{ $.ViewedResult.Init.Name }}(res, {{ if .ViewedResult.ViewName }}{{ printf "%q" .ViewedResult.ViewName }}{{ else }}view{{ end }})
+		if err := vres.Validate(); err != nil {
+			return nil, err
+		}
+		return vres, nil
+{{- else if .ResultRef }}
+		return s.{{ .VarName }}(ctx{{ if .PayloadRef }}, p{{ end }})
 {{- else }}
 	return {{ if not .ResultRef }}nil, {{ end }}s.{{ .VarName }}(ctx{{ if .PayloadRef }}, p{{ end }})
 {{- end }}
